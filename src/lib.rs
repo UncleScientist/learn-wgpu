@@ -53,6 +53,17 @@ pub async fn run() {
             WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                 state.resize(**new_inner_size);
             }
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(VirtualKeyCode::Space),
+                        ..
+                    },
+                ..
+            } => {
+                println!("space bar");
+            }
             WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput {
                 input:
