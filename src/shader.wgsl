@@ -24,5 +24,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_alternate(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.8, 0.2, 0.8, 1.0);
+    return vec4<f32>(-(in.vert_pos.x - 0.5), -(in.vert_pos.y - 0.5), 0.1, 1.0);
 }
