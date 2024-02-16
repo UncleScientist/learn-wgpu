@@ -27,3 +27,9 @@ web-sys = { version = "0.3", features = [
     "Window",
     "Element",
 ]}
+
+[dependencies.image]
+version = "0.24"
+default-features = false
+features = ["png", "jpeg"]
+
