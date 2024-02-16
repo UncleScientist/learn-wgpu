@@ -106,7 +106,6 @@ pub async fn run() {
                     },
                 ..
             } => {
-                println!("space bar");
                 state.which = 1 - state.which;
             }
             WindowEvent::CloseRequested
@@ -154,7 +153,7 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: [wgpu::RenderPipeline; 2],
     vertex_buffer: wgpu::Buffer,
-    num_verticies: u32,
+    num_vertices: u32,
     which: usize,
     // The window must be declared after the surface so
     // it gets dropped after it as the surface contains
@@ -250,7 +249,6 @@ impl State {
             },
 
             fragment: Some(wgpu::FragmentState {
-                // 3.
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
@@ -275,9 +273,9 @@ impl State {
             },
             depth_stencil: None, // 1.
             multisample: wgpu::MultisampleState {
-                count: 1,                         // 2.
-                mask: !0,                         // 3.
-                alpha_to_coverage_enabled: false, // 4.
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
             },
             multiview: None, // 5.
         });
@@ -293,7 +291,6 @@ impl State {
             },
 
             fragment: Some(wgpu::FragmentState {
-                // 3.
                 module: &shader,
                 entry_point: "fs_alternate",
                 targets: &[Some(wgpu::ColorTargetState {
@@ -318,9 +315,9 @@ impl State {
             },
             depth_stencil: None, // 1.
             multisample: wgpu::MultisampleState {
-                count: 1,                         // 2.
-                mask: !0,                         // 3.
-                alpha_to_coverage_enabled: false, // 4.
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
             },
             multiview: None, // 5.
         });
@@ -341,7 +338,7 @@ impl State {
             which: 0,
             render_pipeline: [render_pipeline1, render_pipeline2],
             vertex_buffer,
-            num_verticies: VERTICES.len() as u32,
+            num_vertices: VERTICES.len() as u32,
         }
     }
 
@@ -399,7 +396,7 @@ impl State {
 
             render_pass.set_pipeline(&self.render_pipeline[self.which]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_verticies, 0..1);
+            render_pass.draw(0..self.num_vertices, 0..1);
         }
 
         // submit will accept anything that implements IntoIter
