@@ -168,7 +168,7 @@ struct State {
     _num_vertices: u32,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    diffuse_bind_group: wgpu::BindGroup,
+    diffuse_bind_group: [wgpu::BindGroup; 2],
     diffuse_texture: texture::Texture,
     which: usize,
     // The window must be declared after the surface so
@@ -247,6 +247,11 @@ impl State {
         let diffuse_texture =
             texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
 
+        let turtle_star_bytes = include_bytes!("turtle-star.png");
+        let turtle_star_texture =
+            texture::Texture::from_bytes(&device, &queue, turtle_star_bytes, "turtle-star.png")
+                .unwrap();
+
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -272,7 +277,7 @@ impl State {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let diffuse_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let diffuse_bind_group1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -285,6 +290,21 @@ impl State {
                 },
             ],
             label: Some("diffuse_bind_group"),
+        });
+
+        let diffuse_bind_group2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&turtle_star_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&turtle_star_texture.sampler),
+                },
+            ],
+            label: Some("turtle star diffuse_bind_group"),
         });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -365,7 +385,7 @@ impl State {
             _num_vertices: VERTICES.len() as u32,
             index_buffer,
             num_indices: INDICES.len() as u32,
-            diffuse_bind_group,
+            diffuse_bind_group: [diffuse_bind_group1, diffuse_bind_group2],
             diffuse_texture,
         }
     }
@@ -423,7 +443,7 @@ impl State {
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.diffuse_bind_group[self.which], &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
