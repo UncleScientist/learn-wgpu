@@ -1,7 +1,7 @@
 mod camera;
 mod texture;
 
-use camera::{Camera, CameraUniform};
+use camera::{Camera, CameraController, CameraUniform};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -132,6 +132,9 @@ pub async fn run() {
                     },
                 ..
             } => *control_flow = ControlFlow::Exit,
+            WindowEvent::KeyboardInput { .. } => {
+                state.input(event);
+            }
             _ => {}
         },
         Event::RedrawRequested(window_id) if window_id == state.window().id() => {
@@ -176,6 +179,7 @@ struct State {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    camera_controller: CameraController,
     which: usize,
     // The window must be declared after the surface so
     // it gets dropped after it as the surface contains
@@ -425,6 +429,7 @@ impl State {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            camera_controller: CameraController::new(0.2),
         }
     }
 
@@ -441,11 +446,19 @@ impl State {
         }
     }
 
-    fn _input(&mut self, _event: &WindowEvent) -> bool {
-        false
+    fn input(&mut self, event: &WindowEvent) -> bool {
+        self.camera_controller.process_events(event)
     }
 
-    fn update(&mut self) {}
+    fn update(&mut self) {
+        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_uniform.update_view_proj(&self.camera);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+    }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let output = self.surface.get_current_texture()?;
