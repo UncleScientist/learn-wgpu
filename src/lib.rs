@@ -1,7 +1,7 @@
 mod camera;
 mod texture;
 
-use camera::{Camera, CameraController, CameraUniform};
+use camera::{CameraController, ObjectUniform, ObjectView};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -175,10 +175,14 @@ struct State {
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
     diffuse_texture: texture::Texture,
-    camera: Camera,
-    camera_uniform: CameraUniform,
+    camera: ObjectView,
+    camera_uniform: ObjectUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+    rotation: ObjectView,
+    rotation_uniform: ObjectUniform,
+    rotation_buffer: wgpu::Buffer,
+    rotation_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
     which: usize,
     // The window must be declared after the surface so
@@ -320,7 +324,11 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                bind_group_layouts: &[
+                    &texture_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &camera_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -346,10 +354,10 @@ impl State {
             }),
 
             primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList, // 1.
+                topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw, // 2.
-                cull_mode: Some(wgpu::Face::Back),
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None, //Some(wgpu::Face::Back),
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: wgpu::PolygonMode::Fill,
                 // Requires Features::DEPTH_CLIP_CONTROL
@@ -366,7 +374,7 @@ impl State {
             multiview: None, // 5.
         });
 
-        let camera = Camera {
+        let camera = ObjectView {
             // position the camera 1 unit up and 2 units back
             // +z is out of the screen
             eye: (0.0, 1.0, 2.0).into(),
@@ -380,8 +388,20 @@ impl State {
             zfar: 100.0,
         };
 
-        let mut camera_uniform = CameraUniform::new();
+        let mut camera_uniform = ObjectUniform::new();
         camera_uniform.update_view_proj(&camera);
+
+        let rotation = ObjectView {
+            eye: (0.0, 1.0, 2.0).into(),
+            target: (0.0, 0.0, 0.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+        let mut rotation_uniform = ObjectUniform::new();
+        rotation_uniform.update_view_proj(&rotation);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -401,6 +421,12 @@ impl State {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let rotation_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Rotation Buffer"),
+            contents: bytemuck::cast_slice(&[rotation_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -408,6 +434,15 @@ impl State {
                 resource: camera_buffer.as_entire_binding(),
             }],
             label: Some("camera_bind_group"),
+        });
+
+        let rotation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: rotation_buffer.as_entire_binding(),
+            }],
+            label: Some("rotation_bind_group"),
         });
 
         Self {
@@ -429,6 +464,10 @@ impl State {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
+            rotation,
+            rotation_uniform,
+            rotation_buffer,
+            rotation_bind_group,
             camera_controller: CameraController::new(0.2),
         }
     }
@@ -457,6 +496,20 @@ impl State {
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+
+        use cgmath::InnerSpace;
+        let forward = self.rotation.target - self.rotation.eye;
+        let forward_norm = forward.normalize();
+        let forward_mag = forward.magnitude();
+        let right = forward_norm.cross(self.rotation.up);
+        self.rotation.eye =
+            self.rotation.target - (forward - right * 0.2).normalize() * forward_mag;
+        self.rotation_uniform.update_view_proj(&self.rotation);
+        self.queue.write_buffer(
+            &self.rotation_buffer,
+            0,
+            bytemuck::cast_slice(&[self.rotation_uniform]),
         );
     }
 
@@ -496,6 +549,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.rotation_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

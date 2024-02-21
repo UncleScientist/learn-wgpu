@@ -1,6 +1,6 @@
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
-pub struct Camera {
+pub struct ObjectView {
     pub eye: cgmath::Point3<f32>,
     pub target: cgmath::Point3<f32>,
     pub up: cgmath::Vector3<f32>,
@@ -18,7 +18,7 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.0, 1.0,
 );
 
-impl Camera {
+impl ObjectView {
     fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         // 1.
         let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
@@ -34,13 +34,13 @@ impl Camera {
 #[repr(C)]
 // This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
+pub struct ObjectUniform {
     // We can't use cgmath with bytemuck directly, so we'll have
     // to convert the Matrix4 into a 4x4 f32 array
     view_proj: [[f32; 4]; 4],
 }
 
-impl CameraUniform {
+impl ObjectUniform {
     pub fn new() -> Self {
         use cgmath::SquareMatrix;
         Self {
@@ -48,7 +48,7 @@ impl CameraUniform {
         }
     }
 
-    pub fn update_view_proj(&mut self, camera: &Camera) {
+    pub fn update_view_proj(&mut self, camera: &ObjectView) {
         self.view_proj = camera.build_view_projection_matrix().into();
     }
 }
@@ -108,7 +108,7 @@ impl CameraController {
         }
     }
 
-    pub fn update_camera(&self, camera: &mut Camera) {
+    pub fn update_camera(&self, camera: &mut ObjectView) {
         use cgmath::InnerSpace;
         let forward = camera.target - camera.eye;
         let forward_norm = forward.normalize();
