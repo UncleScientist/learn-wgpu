@@ -1,9 +1,13 @@
 mod camera;
+mod model;
+mod resources;
 mod texture;
 
 use camera::{CameraController, ObjectUniform, ObjectView};
 use cgmath::{InnerSpace, Rotation3, Zero};
+use model::{DrawModel, Model, Vertex};
 use texture::Texture;
+
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -13,13 +17,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 3],
-    tex_coords: [f32; 2],
-}
 
 struct Instance {
     position: cgmath::Vector3<f32>,
@@ -81,58 +78,14 @@ impl InstanceRaw {
     }
 }
 
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        tex_coords: [0.4131759, 1.0 - 0.99240386],
-    }, // A
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        tex_coords: [0.0048659444, 1.0 - 0.56958647],
-    }, // B
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        tex_coords: [0.28081453, 1.0 - 0.05060294],
-    }, // C
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        tex_coords: [0.85967, 1.0 - 0.1526709],
-    }, // D
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        tex_coords: [0.9414737, 1.0 - 0.7347359],
-    }, // E
-];
-
-const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
-
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-            ],
-        }
-    }
-}
-
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
+            use log::warn;
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+            warn!("hello, world");
         } else {
             env_logger::init();
         }
@@ -231,23 +184,16 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    _num_vertices: u32,
-    index_buffer: wgpu::Buffer,
-    num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
+    instance_buffer: wgpu::Buffer,
     camera: ObjectView,
     camera_uniform: ObjectUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-    rotation: ObjectView,
-    rotation_uniform: ObjectUniform,
-    rotation_buffer: wgpu::Buffer,
-    rotation_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
     instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
     depth_texture: Texture,
+    obj_model: Model,
     which: usize,
     // The window must be declared after the surface so
     // it gets dropped after it as the surface contains
@@ -260,12 +206,6 @@ const NUM_INSTANCES_PER_ROW: u32 = 10;
 impl State {
     // Creating some of the wgpu types requires async code
     async fn new(window: Window) -> Self {
-        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
-            NUM_INSTANCES_PER_ROW as f32 * 0.5,
-            0.0,
-            NUM_INSTANCES_PER_ROW as f32 * 0.5,
-        );
-
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -399,11 +339,7 @@ impl State {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &texture_bind_group_layout,
-                    &camera_bind_group_layout,
-                    &camera_bind_group_layout,
-                ],
+                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -414,7 +350,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc(), InstanceRaw::desc()],
+                buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
             },
 
             fragment: Some(wgpu::FragmentState {
@@ -472,32 +408,28 @@ impl State {
         let mut camera_uniform = ObjectUniform::new();
         camera_uniform.update_view_proj(&camera);
 
-        let rotation = ObjectView {
-            eye: (0.0, 1.0, 2.0).into(),
-            target: (0.0, 0.0, 0.0).into(),
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
-        let mut rotation_uniform = ObjectUniform::new();
-        rotation_uniform.update_view_proj(&rotation);
+        #[cfg(target_arch = "wasm32")]
+        let source_file_name = "/res/cube.obj";
+        #[cfg(not(target_arch = "wasm32"))]
+        let source_file_name = "cube.obj";
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let obj_model = resources::load_model(
+            source_file_name,
+            &device,
+            &queue,
+            &texture_bind_group_layout,
+        )
+        .await
+        .unwrap();
 
+        const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let position = cgmath::Vector3 {
-                        x: x as f32,
-                        y: 0.0,
-                        z: z as f32,
-                    } - INSTANCE_DISPLACEMENT;
+                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
+
+                    let position = cgmath::Vector3 { x, y: 0.0, z };
                     let rotation = if position.is_zero() {
                         cgmath::Quaternion::from_axis_angle(
                             cgmath::Vector3::unit_z(),
@@ -511,21 +443,9 @@ impl State {
             })
             .collect::<Vec<_>>();
 
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let rotation_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Rotation Buffer"),
-            contents: bytemuck::cast_slice(&[rotation_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -545,15 +465,6 @@ impl State {
             label: Some("camera_bind_group"),
         });
 
-        let rotation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: rotation_buffer.as_entire_binding(),
-            }],
-            label: Some("rotation_bind_group"),
-        });
-
         Self {
             window,
             surface,
@@ -561,23 +472,16 @@ impl State {
             queue,
             config,
             size,
+            obj_model,
+            instance_buffer,
             which: 0,
             render_pipeline,
-            vertex_buffer,
-            _num_vertices: VERTICES.len() as u32,
-            index_buffer,
-            num_indices: INDICES.len() as u32,
             diffuse_bind_group,
             camera,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            rotation,
-            rotation_uniform,
-            rotation_buffer,
-            rotation_bind_group,
             instances,
-            instance_buffer,
             depth_texture,
             camera_controller: CameraController::new(0.2),
         }
@@ -609,19 +513,6 @@ impl State {
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
-        );
-
-        let forward = self.rotation.target - self.rotation.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
-        let right = forward_norm.cross(self.rotation.up);
-        self.rotation.eye =
-            self.rotation.target - (forward - right * 0.2).normalize() * forward_mag;
-        self.rotation_uniform.update_view_proj(&self.rotation);
-        self.queue.write_buffer(
-            &self.rotation_buffer,
-            0,
-            bytemuck::cast_slice(&[self.rotation_uniform]),
         );
     }
 
@@ -665,14 +556,18 @@ impl State {
                 timestamp_writes: None,
             });
 
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.rotation_bind_group, &[]);
+            render_pass
+                .draw_mesh_instanced(&self.obj_model.meshes[0], 0..self.instances.len() as u32);
+
+            /*
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+            */
         }
 
         // submit will accept anything that implements IntoIter

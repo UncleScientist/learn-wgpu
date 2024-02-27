@@ -5,12 +5,6 @@ struct InstanceInput {
     @location(8) model_matrix_3: vec4<f32>,
 };
 
-struct RotationUniform {
-    projection: mat4x4<f32>,
-};
-@group(2) @binding(0)
-var<uniform> rotation: RotationUniform;
-
 struct CameraUniform {
     view_proj: mat4x4<f32>,
 };
@@ -43,8 +37,8 @@ fn vs_main(
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
     // out.clip_position = vec4<f32>(model.position, 1.0);
-    var rotation_position = rotation.projection * vec4<f32>(model.position, 1.0);
-    out.clip_position = camera.view_proj * model_matrix * rotation_position;
+    // var rotation_position = rotation.projection * vec4<f32>(model.position, 1.0);
+    out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
 
     return out;
 }
