@@ -11,7 +11,7 @@ fn format_url(file_name: &str) -> reqwest::Url {
     let location = window.location();
     let mut origin = location.origin().unwrap();
     if !origin.ends_with("learn-wgpu") {
-        origin = format!("{}/learn-wgpu", origin);
+        origin = format!("{}/res", origin);
     }
     let base = reqwest::Url::parse(&format!("{}/", origin,)).unwrap();
     base.join(file_name).unwrap()
