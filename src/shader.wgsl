@@ -81,7 +81,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse_strength = max(dot(in.world_normal, light_dir), 0.0);
     let diffuse_color = light.color * diffuse_strength;
 
-    let result = (diffuse_color) * object_color.xyz;
+    let result = (ambient_color + diffuse_color) * object_color.xyz;
 
     return vec4<f32>(result, object_color.a);
 }
