@@ -188,18 +188,9 @@ pub async fn load_model(
                 triangles_included[c2] += 1.0;
             }
 
-            /*
-            for (mut v, n) in vertices.iter().zip(triangles_included.into_iter()) {
+            for (v, n) in vertices.iter_mut().zip(triangles_included.into_iter()) {
                 v.tangent = (Vector3::from(v.tangent) * n).into();
                 v.bitangent = (Vector3::from(v.bitangent) * n).into();
-            }
-            */
-
-            for (i, n) in triangles_included.into_iter().enumerate() {
-                let denom = 1.0 / n;
-                let v = &mut vertices[i];
-                v.tangent = (Vector3::from(v.tangent) * denom).into();
-                v.bitangent = (Vector3::from(v.bitangent) * denom).into();
             }
 
             let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

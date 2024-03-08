@@ -18,6 +18,7 @@ bytemuck = { version = "1.12", features = [ "derive" ] }
 anyhow = "1.0.79"
 cgmath = "0.18.0"
 tobj = { version = "3.2.1", features = [ "async" ] }
+instant = "0.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
