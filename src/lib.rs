@@ -1,4 +1,5 @@
 mod camera;
+mod hdr;
 mod model;
 mod resources;
 mod texture;
@@ -236,6 +237,7 @@ struct State {
     instances: Vec<Instance>,
     depth_texture: Texture,
     obj_model: Model,
+    hdr: hdr::HdrPipeline,
     // The window must be declared after the surface so
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
@@ -401,6 +403,8 @@ impl State {
             label: None,
         });
 
+        let hdr = hdr::HdrPipeline::new(&device, &config);
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -421,9 +425,10 @@ impl State {
             create_render_pipeline(
                 &device,
                 &render_pipeline_layout,
-                config.format,
+                hdr.format(),
                 Some(texture::Texture::DEPTH_FORMAT),
                 &[model::ModelVertex::desc(), InstanceRaw::desc()],
+                wgpu::PrimitiveTopology::TriangleList,
                 shader_descriptor,
                 "Texture Pipeline",
             )
@@ -442,9 +447,10 @@ impl State {
             create_render_pipeline(
                 &device,
                 &layout,
-                config.format,
+                hdr.format(),
                 Some(texture::Texture::DEPTH_FORMAT),
                 &[model::ModelVertex::desc()],
+                wgpu::PrimitiveTopology::TriangleList,
                 shader_descriptor,
                 "Light Pipline",
             )
@@ -538,6 +544,7 @@ impl State {
             instances,
             depth_texture,
             mouse_pressed: false,
+            hdr,
         }
     }
 
@@ -554,6 +561,8 @@ impl State {
             self.surface.configure(&self.device, &self.config);
             self.depth_texture =
                 texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            self.hdr
+                .resize(&self.device, new_size.width, new_size.height);
         }
     }
 
@@ -624,7 +633,7 @@ impl State {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: self.hdr.view(),
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -667,6 +676,8 @@ impl State {
             );
         }
 
+        self.hdr.process(&mut encoder, &view);
+
         // submit will accept anything that implements IntoIter
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -675,12 +686,14 @@ impl State {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     color_format: wgpu::TextureFormat,
     depth_format: Option<wgpu::TextureFormat>,
     vertex_layouts: &[wgpu::VertexBufferLayout],
+    topology: wgpu::PrimitiveTopology,
     shader: wgpu::ShaderModuleDescriptor,
     label: &str,
 ) -> wgpu::RenderPipeline {
@@ -707,7 +720,7 @@ fn create_render_pipeline(
         }),
 
         primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
+            topology,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
             cull_mode: Some(wgpu::Face::Back),
