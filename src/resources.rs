@@ -2,6 +2,7 @@ use std::io::{BufReader, Cursor};
 
 use cfg_if::cfg_if;
 use cgmath::Vector3;
+use image::codecs::hdr::HdrDecoder;
 use wgpu::util::DeviceExt;
 
 use crate::{model, texture};
@@ -217,7 +218,6 @@ pub async fn load_model(
     Ok(model::Model { meshes, materials })
 }
 
-/*
 pub struct HdrLoader {
     texture_format: wgpu::TextureFormat,
     equirect_layout: wgpu::BindGroupLayout,
@@ -379,4 +379,3 @@ impl HdrLoader {
         Ok(dst)
     }
 }
-*/

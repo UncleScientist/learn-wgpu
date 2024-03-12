@@ -238,6 +238,8 @@ struct State {
     depth_texture: Texture,
     obj_model: Model,
     hdr: hdr::HdrPipeline,
+    environment_bind_group: wgpu::BindGroup,
+    sky_pipeline: wgpu::RenderPipeline,
     // The window must be declared after the surface so
     // it gets dropped after it as the surface contains
     // unsafe references to the window's resources.
@@ -285,6 +287,50 @@ impl State {
             )
             .await
             .unwrap();
+
+        let hdr_loader = resources::HdrLoader::new(&device);
+        let sky_bytes = resources::load_binary("pure-sky.hdr").await.unwrap();
+        let sky_texture = hdr_loader
+            .from_equirectangular_bytes(&device, &queue, &sky_bytes, 1080, Some("Sky Texture"))
+            .unwrap();
+
+        let environment_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("environment_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                ],
+            });
+
+        let environment_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("environment_bind_group"),
+            layout: &environment_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&sky_texture.view()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sky_texture.sampler()),
+                },
+            ],
+        });
 
         let surface_caps = surface.get_capabilities(&adapter);
         // Shader code in this tutorial assumes an sRGB surface texture. Using a different
@@ -366,6 +412,27 @@ impl State {
                 label: Some("camera_bind_group_layout"),
             });
 
+        let hdr = hdr::HdrPipeline::new(&device, &config);
+
+        let sky_pipeline = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Sky Pipeline Layout"),
+                bind_group_layouts: &[&camera_bind_group_layout, &environment_layout],
+                push_constant_ranges: &[],
+            });
+            let shader = wgpu::include_wgsl!("sky.wgsl");
+            create_render_pipeline(
+                &device,
+                &layout,
+                hdr.format(),
+                Some(texture::Texture::DEPTH_FORMAT),
+                &[],
+                wgpu::PrimitiveTopology::TriangleList,
+                shader,
+                "Skybox",
+            )
+        };
+
         let light_uniform = LightUniform::new([2.0, 2.0, 2.0], [0.8, 0.8, 1.0]);
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light VB"),
@@ -396,8 +463,6 @@ impl State {
             }],
             label: None,
         });
-
-        let hdr = hdr::HdrPipeline::new(&device, &config);
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -539,6 +604,8 @@ impl State {
             depth_texture,
             mouse_pressed: false,
             hdr,
+            environment_bind_group,
+            sky_pipeline,
         }
     }
 
@@ -661,13 +728,18 @@ impl State {
             );
 
             render_pass.set_pipeline(&self.render_pipeline);
-
             render_pass.draw_model_instanced(
                 &self.obj_model,
                 0..self.instances.len() as u32,
                 &self.camera_bind_group,
                 &self.light_bind_group,
+                &self.environment_bind_group,
             );
+
+            render_pass.set_pipeline(&self.sky_pipeline);
+            render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.environment_bind_group, &[]);
+            render_pass.draw(0..3, 0..1);
         }
 
         self.hdr.process(&mut encoder, &view);
@@ -729,7 +801,7 @@ fn create_render_pipeline(
         depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
             format,
             depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Less,
+            depth_compare: wgpu::CompareFunction::LessEqual,
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),

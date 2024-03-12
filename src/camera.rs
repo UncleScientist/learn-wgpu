@@ -1,4 +1,4 @@
-use cgmath::{perspective, InnerSpace, Matrix4, Point3, Rad, Vector3};
+use cgmath::{perspective, InnerSpace, Matrix, Matrix4, Point3, Rad, SquareMatrix, Vector3};
 use instant::Duration;
 use winit::{
     dpi::PhysicalPosition,
@@ -23,21 +23,34 @@ pub struct ObjectUniform {
     // We can't use cgmath with bytemuck directly, so we'll have
     // to convert the Matrix4 into a 4x4 f32 array
     view_position: [f32; 4],
+    view: [[f32; 4]; 4],
     view_proj: [[f32; 4]; 4],
+    inv_proj: [[f32; 4]; 4],
+    inv_view: [[f32; 4]; 4],
 }
 
 impl ObjectUniform {
     pub fn new() -> Self {
-        use cgmath::SquareMatrix;
         Self {
             view_position: [0.0; 4],
+            view: cgmath::Matrix4::identity().into(),
             view_proj: cgmath::Matrix4::identity().into(),
+            inv_proj: cgmath::Matrix4::identity().into(),
+            inv_view: cgmath::Matrix4::identity().into(),
         }
     }
 
     pub fn update_view_proj(&mut self, camera: &Camera, projection: &Projection) {
         self.view_position = camera.position.to_homogeneous().into();
-        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
+
+        let proj = projection.calc_matrix();
+        let view = camera.calc_matrix();
+        let view_proj = proj * view;
+
+        self.view = view.into();
+        self.view_proj = view_proj.into();
+        self.inv_proj = proj.invert().unwrap().into();
+        self.inv_view = view.transpose().into()
     }
 }
 
